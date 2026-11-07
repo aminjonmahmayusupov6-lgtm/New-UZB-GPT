@@ -1,8 +1,8 @@
 {
   "name": "ai-bek",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "description": "AI BEK Uzbek AI chat starter",
+  "description": "AI BEK Uzbek AI chat powered by Cohere",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
