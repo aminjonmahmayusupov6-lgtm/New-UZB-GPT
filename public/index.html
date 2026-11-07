@@ -13,24 +13,26 @@ header{padding:14px 4px;border-bottom:1px solid #26334a}h1{margin:0;font-size:25
 #messages{flex:1;overflow:auto;padding:18px 2px;display:flex;flex-direction:column;gap:12px}
 .msg{max-width:88%;padding:12px 15px;border-radius:16px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .user{align-self:flex-end;background:#2458b8}.assistant{align-self:flex-start;background:#18253a;border:1px solid #2a3a55}
+.sources{align-self:flex-start;max-width:88%;display:flex;flex-direction:column;gap:6px;padding:0 8px 4px}.sources strong{font-size:12px;color:#9fb0ca}.sources a{font-size:13px;color:#8eb8ff;text-decoration:none;overflow-wrap:anywhere}.sources a:hover{text-decoration:underline}
 form{display:flex;gap:8px;padding:12px 0 4px;border-top:1px solid #26334a}input{min-width:0;flex:1;background:#152238;border:1px solid #30415d;border-radius:13px;padding:14px;color:white;font-size:16px;outline:none}
 button{border:0;border-radius:13px;padding:0 16px;background:#3675ed;color:white;font-weight:650;font-size:15px}button:disabled{opacity:.5}
 .tools{display:flex;gap:8px;padding:8px 0}.tools button{padding:9px 12px;background:#1b2a42;border:1px solid #30415d}.hint{color:#91a2bd;font-size:12px;padding:5px 2px}
 #install{display:none;background:#1b2a42;border:1px solid #45638d;padding:9px 12px;border-radius:12px;color:#eef3ff;font-weight:600}
 </style></head>
 <body><main class="app">
-<header><h1>🤖 AI BEK</h1><p>O‘zbek tilidagi sun’iy intellekt yordamchisi</p></header>
-<section id="messages" aria-live="polite"><div class="msg assistant">Assalomu alaykum! Men AI BEK. Sizga qanday yordam beray?</div></section>
+<header><h1>🤖 AI BEK</h1><p>O‘zbek tilidagi sun’iy intellekt yordamchisi · 🌐 Internet qidiruvi yoqilgan</p></header>
+<section id="messages" aria-live="polite"><div class="msg assistant">Assalomu alaykum! Men AI BEK. Internetdan ham ma’lumot qidirib, manbalarini ko‘rsataman. Sizga qanday yordam beray?</div></section>
 <div class="tools"><button type="button" id="mic">🎙 Ovoz bilan yozish</button><button type="button" id="speak">🔊 Ovozli javob: yoqish</button><button type="button" id="install">📲 Ilovani o‘rnatish</button></div>
 <form id="form"><input id="input" autocomplete="off" placeholder="AI BEK ga xabar yozing..." aria-label="Xabar"><button id="send">Yuborish</button></form>
-<div class="hint">Ovozli yozish brauzer qo‘llab-quvvatlashiga bog‘liq.</div>
+<div class="hint">Internet qidiruvi xabaringizga mos natijalarni topishga harakat qiladi. Ovozli yozish brauzer qo‘llab-quvvatlashiga bog‘liq.</div>
 </main>
 <script>
 const messages=document.querySelector("#messages"),form=document.querySelector("#form"),input=document.querySelector("#input"),send=document.querySelector("#send");
 const history=[];let voiceReply=false;let installPrompt=null;
 function add(text,role){const el=document.createElement("div");el.className="msg "+role;el.textContent=text;messages.appendChild(el);messages.scrollTop=messages.scrollHeight;return el}
-form.addEventListener("submit",async e=>{e.preventDefault();const message=input.value.trim();if(!message)return;input.value="";add(message,"user");send.disabled=true;const wait=add("AI BEK javob tayyorlamoqda...","assistant");
-try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,history})});const data=await r.json();if(!r.ok)throw new Error(data.error||"Xatolik");wait.textContent=data.reply;history.push({role:"user",content:message},{role:"assistant",content:data.reply});if(voiceReply&&"speechSynthesis"in window){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(data.reply))}}
+function addSources(sources){if(!Array.isArray(sources)||!sources.length)return;const wrap=document.createElement("div");wrap.className="sources";const label=document.createElement("strong");label.textContent="🌐 Internet manbalari";wrap.appendChild(label);sources.forEach(source=>{try{const url=new URL(source.url);if(!["http:","https:"].includes(url.protocol))return;const a=document.createElement("a");a.href=url.href;a.target="_blank";a.rel="noopener noreferrer";a.textContent="↗ "+(source.title||url.hostname);wrap.appendChild(a)}catch{}});if(wrap.children.length>1)messages.appendChild(wrap);messages.scrollTop=messages.scrollHeight}
+form.addEventListener("submit",async e=>{e.preventDefault();const message=input.value.trim();if(!message)return;input.value="";add(message,"user");send.disabled=true;const wait=add("AI BEK internetdan ma’lumot izlamoqda...","assistant");
+try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,history})});const data=await r.json();if(!r.ok)throw new Error(data.error||"Xatolik");wait.textContent=data.reply;addSources(data.sources);history.push({role:"user",content:message},{role:"assistant",content:data.reply});if(voiceReply&&"speechSynthesis"in window){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(data.reply))}}
 catch(err){wait.textContent="Xatolik: "+err.message}finally{send.disabled=false;input.focus()}});
 document.querySelector("#speak").onclick=()=>{voiceReply=!voiceReply;document.querySelector("#speak").textContent="🔊 Ovozli javob: "+(voiceReply?"yoqilgan":"o‘chirilgan")};
 document.querySelector("#mic").onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){add("Bu brauzer ovozli yozishni qo‘llab-quvvatlamaydi.","assistant");return}const rec=new SR();rec.lang="uz-UZ";rec.onresult=e=>{input.value=e.results[0][0].transcript;input.focus()};rec.onerror=()=>add("Ovoz aniqlanmadi. Qayta urinib ko‘ring.","assistant");rec.start()};
