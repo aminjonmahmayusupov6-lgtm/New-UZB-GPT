@@ -184,7 +184,7 @@ app.post("/api/chat", async (req, res) => {
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-12) : [];
     if (!message && !image) return res.status(400).json({ error: "Xabar yoki rasm yuboring." });
     if (image) {
-      if (!/^data:image\\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)) return res.status(400).json({ error: "Rasm formati noto‘g‘ri." });
+      if (!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)) return res.status(400).json({ error: "Rasm formati noto‘g‘ri." });
       const encoded = image.slice(image.indexOf(",") + 1);
       if (Buffer.from(encoded, "base64").length > 5 * 1024 * 1024) return res.status(413).json({ error: "Rasm 5 MB dan kichik bo‘lishi kerak." });
     }
