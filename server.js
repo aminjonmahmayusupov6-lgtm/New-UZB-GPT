@@ -20,20 +20,30 @@ function cleanText(value = "") {
   return decodeHtml(value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ")).trim();
 }
 
+const searchCache = new Map();
+
+function shouldSearchWeb(message) {
+  return /\b(internet|qidir|qidiruv|izlab ber|topib ber|yangilik|bugun|hozir|kecha|ertaga|narx|qancha turadi|valyuta|dollar kursi|ob.?havo|prognoz|latest|news|today|current|price|weather|exchange rate)\b/i.test(message);
+}
+
 async function searchWeb(query) {
+  const cacheKey = query.toLocaleLowerCase("uz").trim();
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.time < 60_000) return cached.results;
+
   const url = "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query);
   const response = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 (compatible; AIBEK/1.0; +https://ai-bek-world.onrender.com)",
       "Accept": "text/html"
     },
-    signal: AbortSignal.timeout(7000)
+    signal: AbortSignal.timeout(4000)
   });
   if (!response.ok) throw new Error("Internet qidiruv xizmati javob bermadi.");
   const html = await response.text();
-  const links = [...html.matchAll(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-  const snippets = [...html.matchAll(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)];
-  return links.slice(0, 5).map((match, index) => {
+  const links = [...html.matchAll(/<a\b(?=[^>]*class=["'][^"']*\bresult__a\b[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+  const snippets = [...html.matchAll(/<[^>]*class=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/gi)];
+  const results = links.slice(0, 5).map((match, index) => {
     let href = decodeHtml(match[1]);
     try {
       const parsed = new URL(href, "https://duckduckgo.com");
@@ -46,6 +56,10 @@ async function searchWeb(query) {
       snippet: cleanText(snippets[index]?.[1] || "").slice(0, 500)
     };
   }).filter(item => item.title && /^https?:\/\//i.test(item.url));
+
+  searchCache.set(cacheKey, { time: Date.now(), results });
+  if (searchCache.size > 100) searchCache.delete(searchCache.keys().next().value);
+  return results;
 }
 
 app.get("/api/health", (_req, res) => {
@@ -83,7 +97,7 @@ app.post("/api/chat", async (req, res) => {
 
     let sources = [];
     const isGreeting = /^(salom|assalomu alaykum|va alaykum assalom|rahmat|xayr|hi|hello)[!.\s]*$/i.test(message);
-    if (!isGreeting && message.length >= 4) {
+    if (!isGreeting && shouldSearchWeb(message)) {
       try {
         sources = await searchWeb(message);
       } catch (error) {
