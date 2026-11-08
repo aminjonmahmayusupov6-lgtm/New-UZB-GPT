@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -62,13 +63,105 @@ async function searchWeb(query) {
   return results;
 }
 
+
+function readQuotaCookie(req) {
+  const raw = String(req.headers.cookie || "").split(";").map(x => x.trim()).find(x => x.startsWith("aibek_quota="));
+  if (!raw) return null;
+  const token = raw.slice("aibek_quota=".length);
+  const dot = token.lastIndexOf(".");
+  if (dot < 1) return null;
+  const body = token.slice(0, dot);
+  const signature = token.slice(dot + 1);
+  const secret = process.env.SESSION_SECRET || process.env.COHERE_API_KEY || process.env.POLLINATIONS_API_KEY;
+  if (!secret) return null;
+  const expected = crypto.createHmac("sha256", secret).update(body).digest("base64url");
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (!data.uid || typeof data.count !== "number" || data.count < 0 || data.count > 10) return null;
+    return data;
+  } catch { return null; }
+}
+
+function writeQuotaCookie(res, data) {
+  const secret = process.env.SESSION_SECRET || process.env.COHERE_API_KEY || process.env.POLLINATIONS_API_KEY;
+  const body = Buffer.from(JSON.stringify(data)).toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(body).digest("base64url");
+  const secure = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+  res.setHeader("Set-Cookie", "aibek_quota=" + body + "." + signature + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000" + (secure ? "; Secure" : ""));
+}
+
+const imageRequestsInFlight = new Set();
+
+app.post("/api/image", async (req, res) => {
+  const prompt = String(req.body?.prompt || "").trim().slice(0, 700);
+  if (!prompt) return res.status(400).json({ error: "Rasm uchun tavsif yozing." });
+  if (!process.env.POLLINATIONS_API_KEY) {
+    return res.status(503).json({ error: "Rasm yaratish API kaliti hali ulanmagan. Render Environment bo‘limiga POLLINATIONS_API_KEY qo‘shilishi kerak." });
+  }
+  if (!(process.env.SESSION_SECRET || process.env.COHERE_API_KEY || process.env.POLLINATIONS_API_KEY)) {
+    return res.status(503).json({ error: "Foydalanuvchi limitini himoyalash uchun SESSION_SECRET sozlanmagan." });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const previous = readQuotaCookie(req);
+  const quota = previous && previous.date === today
+    ? previous
+    : { uid: previous?.uid || crypto.randomUUID(), date: today, count: 0 };
+  if (quota.count >= 10) {
+    return res.status(429).json({ error: "Bugungi 10 ta rasm limiti tugadi. Limit UTC bo‘yicha har kuni yangilanadi.", remaining: 0 });
+  }
+  if (imageRequestsInFlight.has(quota.uid)) {
+    return res.status(429).json({ error: "Bitta rasm hozir yaratilmoqda. Tugashini kuting." });
+  }
+
+  imageRequestsInFlight.add(quota.uid);
+  try {
+    const model = process.env.POLLINATIONS_IMAGE_MODEL || "black-forest-labs/flux.1-schnell";
+    const url = "https://gen.pollinations.ai/image/" + encodeURIComponent(prompt) +
+      "?model=" + encodeURIComponent(model) + "&width=1024&height=1024&nologo=true";
+    const upstream = await fetch(url, {
+      headers: { "Authorization": "Bearer " + process.env.POLLINATIONS_API_KEY, "Accept": "image/*" },
+      signal: AbortSignal.timeout(90000)
+    });
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      console.error("Image provider error:", upstream.status, detail.slice(0, 500));
+      return res.status(upstream.status === 401 || upstream.status === 402 ? 502 : upstream.status)
+        .json({ error: upstream.status === 402 ? "Rasm API hisobida mablag‘/limit yetarli emas." : "Rasm xizmati hozir javob bermadi. API kalitini va hisob limitini tekshiring." });
+    }
+    const contentType = upstream.headers.get("content-type") || "image/png";
+    if (!contentType.startsWith("image/")) return res.status(502).json({ error: "Rasm xizmati rasm faylini qaytarmadi." });
+    const bytes = Buffer.from(await upstream.arrayBuffer());
+    if (!bytes.length || bytes.length > 15 * 1024 * 1024) return res.status(502).json({ error: "Yaratilgan rasm hajmi noto‘g‘ri." });
+
+    quota.count += 1;
+    writeQuotaCookie(res, quota);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Images-Remaining", String(10 - quota.count));
+    res.setHeader("X-Images-Used", String(quota.count));
+    return res.status(200).send(bytes);
+  } catch (error) {
+    console.error("Image generation error:", error.message);
+    return res.status(504).json({ error: "Rasm yaratish vaqti tugadi yoki ulanishda xatolik yuz berdi." });
+  } finally {
+    imageRequestsInFlight.delete(quota.uid);
+  }
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     name: "AI BEK",
     provider: "Cohere",
     internetSearch: true,
-    configured: Boolean(process.env.COHERE_API_KEY)
+    configured: Boolean(process.env.COHERE_API_KEY),
+    imageGeneration: true,
+    imageConfigured: Boolean(process.env.POLLINATIONS_API_KEY),
+    dailyImageLimit: 10
   });
 });
 
