@@ -3,7 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "8mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function decodeHtml(value = "") {
@@ -180,8 +180,14 @@ app.get("/api/search", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const message = String(req.body?.message || "").trim();
+    const image = typeof req.body?.image === "string" ? req.body.image : "";
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-12) : [];
-    if (!message) return res.status(400).json({ error: "Xabar bo‘sh bo‘lmasin." });
+    if (!message && !image) return res.status(400).json({ error: "Xabar yoki rasm yuboring." });
+    if (image) {
+      if (!/^data:image\\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)) return res.status(400).json({ error: "Rasm formati noto‘g‘ri." });
+      const encoded = image.slice(image.indexOf(",") + 1);
+      if (Buffer.from(encoded, "base64").length > 5 * 1024 * 1024) return res.status(413).json({ error: "Rasm 5 MB dan kichik bo‘lishi kerak." });
+    }
     if (!process.env.COHERE_API_KEY) {
       return res.status(503).json({
         error: "AI hali sozlanmagan: Render Environment’da COHERE_API_KEY qo‘shilishi kerak."
@@ -211,7 +217,10 @@ app.post("/api/chat", async (req, res) => {
       ...history
         .filter(x => ["user", "assistant"].includes(x?.role) && typeof x?.content === "string")
         .map(x => ({ role: x.role, content: x.content.slice(0, 4000) })),
-      { role: "user", content: message.slice(0, 4000) }
+      { role: "user", content: image ? [
+        { type: "text", text: (message || "Ushbu rasmni tahlil qiling.").slice(0, 4000) },
+        { type: "image_url", image_url: { url: image, detail: "high" } }
+      ] : message.slice(0, 4000) }
     ];
 
     const response = await fetch("https://api.cohere.com/v2/chat", {
@@ -222,7 +231,7 @@ app.post("/api/chat", async (req, res) => {
         "Accept": "application/json"
       },
       body: JSON.stringify({
-        model: process.env.COHERE_MODEL || "command-a-plus-05-2026",
+        model: image ? "command-a-vision-07-2025" : (process.env.COHERE_MODEL || "command-a-plus-05-2026"),
         messages,
         temperature: 0.7
       })
