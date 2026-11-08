@@ -16,19 +16,29 @@ header{padding:14px 4px;border-bottom:1px solid #26334a}h1{margin:0;font-size:25
 .sources{align-self:flex-start;max-width:88%;display:flex;flex-direction:column;gap:6px;padding:0 8px 4px}.sources strong{font-size:12px;color:#9fb0ca}.sources a{font-size:13px;color:#8eb8ff;text-decoration:none;overflow-wrap:anywhere}.sources a:hover{text-decoration:underline}
 form{display:flex;gap:8px;padding:12px 0 4px;border-top:1px solid #26334a}input{min-width:0;flex:1;background:#152238;border:1px solid #30415d;border-radius:13px;padding:14px;color:white;font-size:16px;outline:none}
 button{border:0;border-radius:13px;padding:0 16px;background:#3675ed;color:white;font-weight:650;font-size:15px}button:disabled{opacity:.5}
-.tools{display:flex;gap:8px;padding:8px 0}.tools button{padding:9px 12px;background:#1b2a42;border:1px solid #30415d}.hint{color:#91a2bd;font-size:12px;padding:5px 2px}
+.tools{display:flex;gap:8px;padding:8px 0}.tools button{padding:9px 12px;background:#1b2a42;border:1px solid #30415d}.image-panel{padding:12px 0;display:flex;flex-direction:column;gap:9px}.image-panel[hidden]{display:none}.image-panel input{width:100%;flex:none}.image-panel button{padding:12px}.image-panel img{display:block;max-width:100%;max-height:55vh;object-fit:contain;border-radius:14px}.hint{color:#91a2bd;font-size:12px;padding:5px 2px}
 #install{display:none;background:#1b2a42;border:1px solid #45638d;padding:9px 12px;border-radius:12px;color:#eef3ff;font-weight:600}
 </style></head>
 <body><main class="app">
 <header><h1>🤖 AI BEK</h1><p>O‘zbek tilidagi sun’iy intellekt yordamchisi · 🌐 Internet qidiruvi yoqilgan</p></header>
 <section id="messages" aria-live="polite"><div class="msg assistant">Assalomu alaykum! Men AI BEK. Internetdan ham ma’lumot qidirib, manbalarini ko‘rsataman. Sizga qanday yordam beray?</div></section>
-<div class="tools"><button type="button" id="mic">🎙 Ovoz bilan yozish</button><button type="button" id="speak">🔊 Ovozli javob: yoqish</button><button type="button" id="install">📲 Ilovani o‘rnatish</button></div>
+<div class="tools"><button type="button" id="imageToggle">🎨 Rasm yaratish</button><button type="button" id="mic">🎙 Ovoz bilan yozish</button><button type="button" id="speak">🔊 Ovozli javob: yoqish</button><button type="button" id="install">📲 Ilovani o‘rnatish</button></div>
+<section class="image-panel" id="imagePanel" hidden><form id="imageForm"><input id="imagePrompt" maxlength="700" placeholder="Qanday rasm yaratilsin?" aria-label="Rasm tavsifi"><button id="imageSend" type="submit">Rasm yaratish</button></form><div class="hint" id="imageStatus">Kuniga 10 ta rasm. Limit brauzer foydalanuvchisi bo‘yicha hisoblanadi.</div><img id="generatedImage" alt="AI BEK yaratgan rasm" hidden></section>
 <form id="form"><input id="input" autocomplete="off" placeholder="AI BEK ga xabar yozing..." aria-label="Xabar"><button id="send">Yuborish</button></form>
 <div class="hint">Internet qidiruvi xabaringizga mos natijalarni topishga harakat qiladi. Ovozli yozish brauzer qo‘llab-quvvatlashiga bog‘liq.</div>
 </main>
 <script>
 const messages=document.querySelector("#messages"),form=document.querySelector("#form"),input=document.querySelector("#input"),send=document.querySelector("#send");
 const history=[];let voiceReply=false;let installPrompt=null;
+const imagePanel=document.querySelector("#imagePanel"),imageForm=document.querySelector("#imageForm"),imagePrompt=document.querySelector("#imagePrompt"),imageSend=document.querySelector("#imageSend"),imageStatus=document.querySelector("#imageStatus"),generatedImage=document.querySelector("#generatedImage");
+let lastImageUrl=null;
+document.querySelector("#imageToggle").onclick=()=>{imagePanel.hidden=!imagePanel.hidden;if(!imagePanel.hidden)imagePrompt.focus()};
+imageForm.addEventListener("submit",async e=>{e.preventDefault();const prompt=imagePrompt.value.trim();if(!prompt)return;imageSend.disabled=true;imageStatus.textContent="AI BEK rasm yaratmoqda...";generatedImage.hidden=true;
+try{const response=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
+if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"Rasm yaratilmadi")}
+const blob=await response.blob();if(lastImageUrl)URL.revokeObjectURL(lastImageUrl);lastImageUrl=URL.createObjectURL(blob);generatedImage.src=lastImageUrl;generatedImage.hidden=false;imageStatus.textContent="Tayyor! Bugun yana "+response.headers.get("X-Images-Remaining")+" ta rasm yaratishingiz mumkin.";
+}catch(err){imageStatus.textContent="Xatolik: "+err.message}finally{imageSend.disabled=false}});
+
 function add(text,role){const el=document.createElement("div");el.className="msg "+role;el.textContent=text;messages.appendChild(el);messages.scrollTop=messages.scrollHeight;return el}
 function addSources(sources){if(!Array.isArray(sources)||!sources.length)return;const wrap=document.createElement("div");wrap.className="sources";const label=document.createElement("strong");label.textContent="🌐 Internet manbalari";wrap.appendChild(label);sources.forEach(source=>{try{const url=new URL(source.url);if(!["http:","https:"].includes(url.protocol))return;const a=document.createElement("a");a.href=url.href;a.target="_blank";a.rel="noopener noreferrer";a.textContent="↗ "+(source.title||url.hostname);wrap.appendChild(a)}catch{}});if(wrap.children.length>1)messages.appendChild(wrap);messages.scrollTop=messages.scrollHeight}
 form.addEventListener("submit",async e=>{e.preventDefault();const message=input.value.trim();if(!message)return;input.value="";add(message,"user");send.disabled=true;const wait=add("AI BEK internetdan ma’lumot izlamoqda...","assistant");
